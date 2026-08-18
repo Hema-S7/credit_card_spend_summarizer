@@ -8,7 +8,7 @@ from src.core.config import (
     QUERY_TIMEOUT_SECONDS,
 )
 
-from src.core.database import (
+from src.core.db import (
     get_raw_connection,
 )
 
