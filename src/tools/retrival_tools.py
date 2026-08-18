@@ -3,7 +3,7 @@ from typing import Any
 from psycopg.rows import dict_row
 
 from src.core.config import RRF_K
-from src.core.database import (
+from src.core.db import (
     get_raw_connection,
     get_vector_store,
 )
