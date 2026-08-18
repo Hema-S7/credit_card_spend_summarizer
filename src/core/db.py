@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from langchain_openai import OpenAIEmbeddings
+from src.core.config import DATABASE_URL, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL, PGVECTOR_COLLECTION_NAME
 
 load_dotenv()
 
@@ -258,3 +259,68 @@ def store_chunks(chunks: list[dict], doc_id: str) -> int:
         conn.commit()
 
     return rows_inserted
+
+
+def get_raw_connection():
+    """
+    Return a raw psycopg connection.
+
+    Used for:
+    - FTS queries
+    - controlled SQL execution
+    - low-level PostgreSQL operations
+    """
+
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL is not configured.")
+
+    return psycopg.connect(DATABASE_URL)
+
+
+def get_sql_database() -> SQLDatabase:
+    """
+    Return LangChain SQLDatabase wrapper.
+
+    Primarily used for:
+    - reading live database schema
+    - NL2SQL context generation
+    """
+
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL is not configured.")
+
+    return SQLDatabase.from_uri(DATABASE_URL)
+
+
+def get_embeddings() -> OpenAIEmbeddings:
+    """
+    Return the embedding model used by PGVector.
+    """
+
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is not configured.")
+
+    return OpenAIEmbeddings(
+        model=OPENAI_EMBEDDING_MODEL,
+        api_key=OPENAI_API_KEY,
+    )
+
+
+def get_vector_store(
+    collection_name: str | None = None,
+) -> PGVector:
+    """
+    Return PGVector instance for semantic search.
+    """
+
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL is not configured.")
+
+    collection = collection_name or PGVECTOR_COLLECTION_NAME
+
+    return PGVector(
+        embeddings=get_embeddings(),
+        collection_name=collection,
+        connection=DATABASE_URL,
+        use_jsonb=True,
+    )
