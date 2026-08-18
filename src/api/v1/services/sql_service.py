@@ -2,7 +2,7 @@ from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from src.core.database import get_sql_database
+from src.core.db import get_sql_database
 from src.core.llm import get_llm
 
 
