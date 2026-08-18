@@ -57,7 +57,10 @@ def rerank_documents(
 
         reranked_documents = []
 
-        for result in rerank_response.results:
+        for rank, result in enumerate(
+            rerank_response.results,
+            start=1,
+        ):
 
             original_doc = documents[result.index]
 
@@ -65,13 +68,12 @@ def rerank_documents(
                 {
                     "content": original_doc["content"],
                     "metadata": original_doc["metadata"],
-                    # Preserve retrieval scores
                     "fts_rank": original_doc.get("fts_rank"),
                     "vector_score": original_doc.get("vector_score"),
                     "rrf_score": original_doc.get("rrf_score"),
-                    # Add Cohere score
                     "rerank_score": result.relevance_score,
-                    "rank": result.index + 1,
+                    # Cohere reranked position
+                    "rank": rank,
                 }
             )
 

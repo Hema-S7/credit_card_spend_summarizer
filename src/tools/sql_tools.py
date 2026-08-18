@@ -57,10 +57,11 @@ def validate_read_only(
     """
     Ensure query is read-only SELECT.
     """
-
     normalized = sql.upper()
 
-    if not normalized.startswith("SELECT"):
+    starts_read_only = normalized.startswith("SELECT") or normalized.startswith("WITH")
+
+    if not starts_read_only:
         return False
 
     for keyword in FORBIDDEN_KEYWORDS:

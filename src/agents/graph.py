@@ -122,27 +122,87 @@ def route_combined(state: AgentState):
     ]
 
 
-def evidence_gate(state):
+def evidence_gate_node(
+    state: AgentState,
+):
+    """
+    Synchronization/gate node.
+
+    A LangGraph node must return a dict.
+    No state update is required here.
+    """
+    return {}
+
+
+def route_after_evidence_gate(
+    state: AgentState,
+):
+    """
+    Decide whether validated evidence is ready
+    for answer generation or retry is required.
+    """
 
     decision = state["agent_decision"]
 
+    # FAQ evidence required
     if decision["needs_faq"]:
 
-        if "retrieval_evaluation" not in state:
-            return "wait"
+        retrieval_eval = state.get("retrieval_evaluation")
 
-        if not state["retrieval_evaluation"]["passed"]:
+        if not retrieval_eval or not retrieval_eval["passed"]:
             return "retry"
 
+    # Analytics evidence required
     if decision["needs_analytics"]:
 
-        if "sql_evaluation" not in state:
-            return "wait"
+        sql_eval = state.get("sql_evaluation")
 
-        if not state["sql_evaluation"]["passed"]:
+        if not sql_eval or not sql_eval["passed"]:
             return "retry"
 
     return "answer"
+
+
+def retry_check_node(
+    state: AgentState,
+):
+
+    issues = []
+    failure_stages = []
+
+    retrieval_eval = state.get("retrieval_evaluation")
+
+    if retrieval_eval and not retrieval_eval["passed"]:
+
+        issues.extend(retrieval_eval.get("issues", []))
+
+        failure_stages.append("retrieval_evaluation")
+
+    sql_eval = state.get("sql_evaluation")
+
+    if sql_eval and not sql_eval["passed"]:
+
+        issues.extend(sql_eval.get("issues", []))
+
+        failure_stages.append("sql_evaluation")
+
+    final_eval = state.get("final_evaluation")
+
+    if final_eval and not final_eval["passed"]:
+
+        issues.extend(final_eval.get("issues", []))
+
+        failure_stages.append("final_evaluation")
+
+    return {
+        "retry_feedback": {
+            "failure_stage": (
+                ", ".join(failure_stages) if failure_stages else "unknown"
+            ),
+            "error_code": None,
+            "issues": issues,
+        }
+    }
 
 
 def route_final_evaluation(state: AgentState):
@@ -153,6 +213,40 @@ def route_final_evaluation(state: AgentState):
         return "end"
 
     return "retry"
+
+
+def combined_start_node(state: AgentState):
+    return {}
+
+
+def faq_complete_node(state: AgentState):
+    return {}
+
+
+def sql_complete_node(state: AgentState):
+    return {}
+
+
+def route_after_retrieval_eval(
+    state: AgentState,
+):
+    decision = state["agent_decision"]
+
+    if decision["query_type"] == "combined":
+        return "combined"
+
+    return "single"
+
+
+def route_after_sql_eval(
+    state: AgentState,
+):
+    decision = state["agent_decision"]
+
+    if decision["query_type"] == "combined":
+        return "combined"
+
+    return "single"
 
 
 # ============================================================
@@ -210,7 +304,7 @@ def build_graph():
 
     workflow.add_node(
         "evidence_gate",
-        evidence_gate,
+        evidence_gate_node,
     )
 
     workflow.add_node(
@@ -222,7 +316,10 @@ def build_graph():
         "final_eval",
         final_evaluator_node,
     )
-
+    workflow.add_node(
+        "retry_check",
+        retry_check_node,
+    )
     workflow.add_node(
         "retry_rephrase",
         retry_rephrase_node,
@@ -231,6 +328,21 @@ def build_graph():
     workflow.add_node(
         "retry_failed",
         retry_exhausted_response,
+    )
+
+    workflow.add_node(
+        "combined_start",
+        combined_start_node,
+    )
+
+    workflow.add_node(
+        "faq_complete",
+        faq_complete_node,
+    )
+
+    workflow.add_node(
+        "sql_complete",
+        sql_complete_node,
     )
 
     # ---------------------------
@@ -246,6 +358,11 @@ def build_graph():
     workflow.add_conditional_edges(
         "agent",
         route_after_agent,
+        {
+            "faq": "retrieval",
+            "analytics": "nl2sql",
+            "combined": "combined_start",
+        },
     )
 
     # ---------------------------
@@ -262,9 +379,13 @@ def build_graph():
         "retrieval_eval",
     )
 
-    workflow.add_edge(
+    workflow.add_conditional_edges(
         "retrieval_eval",
-        "evidence_gate",
+        route_after_retrieval_eval,
+        {
+            "single": "evidence_gate",
+            "combined": "faq_complete",
+        },
     )
 
     # ---------------------------
@@ -286,8 +407,33 @@ def build_graph():
         "sql_eval",
     )
 
-    workflow.add_edge(
+    workflow.add_conditional_edges(
         "sql_eval",
+        route_after_sql_eval,
+        {
+            "single": "evidence_gate",
+            "combined": "sql_complete",
+        },
+    )
+
+    # ---------------------------
+    # Combined branch
+    # ---------------------------
+    workflow.add_edge(
+        "combined_start",
+        "retrieval",
+    )
+
+    workflow.add_edge(
+        "combined_start",
+        "nl2sql",
+    )
+
+    workflow.add_edge(
+        [
+            "faq_complete",
+            "sql_complete",
+        ],
         "evidence_gate",
     )
 
@@ -297,10 +443,10 @@ def build_graph():
 
     workflow.add_conditional_edges(
         "evidence_gate",
-        evidence_gate,
+        route_after_evidence_gate,
         {
             "answer": "answer_builder",
-            "retry": "retry_rephrase",
+            "retry": "retry_check",
         },
     )
 
@@ -314,21 +460,25 @@ def build_graph():
         route_final_evaluation,
         {
             "end": END,
-            "retry": "retry_rephrase",
+            "retry": "retry_check",
         },
     )
 
     # ---------------------------
     # Retry
     # ---------------------------
-
     workflow.add_conditional_edges(
-        "retry_rephrase",
+        "retry_check",
         retry_router,
         {
-            "retry": "agent",
+            "retry": "retry_rephrase",
             "exhausted": "retry_failed",
         },
+    )
+
+    workflow.add_edge(
+        "retry_rephrase",
+        "agent",
     )
 
     workflow.add_edge(
@@ -338,4 +488,11 @@ def build_graph():
 
     checkpointer = MemorySaver()
 
-    return workflow.compile(checkpointer=checkpointer)
+    return_flow = workflow.compile(checkpointer=checkpointer)
+
+    # generate and save the graph visualization
+    graph_image = return_flow.get_graph().draw_mermaid_png()
+    with open("test_dig.png", "wb") as f:
+        f.write(graph_image)
+
+    return return_flow

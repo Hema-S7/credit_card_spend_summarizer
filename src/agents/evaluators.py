@@ -268,22 +268,58 @@ def judge_relevance(
             """ for i, doc in enumerate(documents)])
 
     prompt = f"""
-        You are a retrieval quality evaluator.
+You are a retrieval quality evaluator.
 
-        User query:
-        {query}
+User query:
 
-
-        Retrieved documents:
-        {context}
+{query}
 
 
-        Determine whether these documents contain
-        sufficient information to answer the user query.
+Retrieved documents:
 
-        Return ONLY:
-        YES or NO
-        """
+{context}
+
+
+Determine whether these documents contain
+sufficient information to answer the user query.
+
+
+Important evaluation rules:
+
+- A retrieval result can still be sufficient even when
+  the user's terminology does not exactly match the
+  terminology used in the documents.
+
+- Do not require exact keyword matches if the retrieved
+  documents clearly contain equivalent or closely related
+  information.
+
+- Example:
+  The user may ask for "cashback", while the document may
+  provide a "reward points rate".
+
+- If the documents contain enough information to:
+  1. answer the supported part of the user's question, and
+  2. clearly state that another requested concept is not
+     explicitly available in the evidence,
+
+  then the retrieval should be considered sufficient.
+
+- Do not mark the retrieval as insufficient merely because
+  the exact wording used by the user is absent.
+
+- For multi-part questions, consider the retrieved documents
+  together. Different parts of the answer may come from
+  different documents/chunks.
+
+- Return NO only when the retrieved evidence is genuinely
+  insufficient to provide a grounded and useful answer.
+
+
+Return ONLY:
+
+YES or NO
+"""
 
     response = llm.invoke(prompt)
 
@@ -407,6 +443,32 @@ Does the result contain all information required?
 
 3. Grounded:
 Is the answer supported by the SQL result?
+
+Time-period evaluation rules:
+
+When evaluating relative time queries such as:
+- "this month"
+- "last month"
+- "current month"
+- "previous month"
+
+check whether the SQL selected an appropriate
+time reference for the available dataset.
+
+Do not automatically consider CURRENT_DATE correct.
+
+If the dataset contains historical or static customer data,
+relative periods should normally refer to the latest
+available relevant data period unless the user explicitly
+asks about the actual current calendar date.
+
+Verify that:
+- the selected periods match the user's intended comparison;
+- the correct month/date columns were used;
+- the returned periods actually contain the relevant data;
+- a zero result is not caused merely by choosing calendar
+  months outside the available dataset.
+
 
 
 Return ONLY JSON:

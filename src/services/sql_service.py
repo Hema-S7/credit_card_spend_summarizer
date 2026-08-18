@@ -62,6 +62,26 @@ Rules:
   ALTER
   CREATE
 
+Time-period interpretation rules:
+- If the user explicitly provides a date, month, or year,
+use that exact requested period.
+
+- For relative expressions such as:
+"this month",
+"last month",
+"current month",
+"previous month",
+"latest month",
+prefer the latest available data period for the requested
+card/customer rather than blindly using CURRENT_DATE.
+
+- For statement-based spending comparisons, prefer
+billing_statements when it already contains the required
+monthly aggregate.
+
+- Do not use CURRENT_DATE unless the user's question clearly
+requires comparison against the actual current calendar date.
+
 - Always add LIMIT 50 rows
   unless the question requires aggregation.
 

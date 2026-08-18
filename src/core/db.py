@@ -1,3 +1,17 @@
+import psycopg
+
+from langchain_community.utilities import SQLDatabase
+from langchain_openai import OpenAIEmbeddings
+from langchain_postgres import PGVector
+
+from src.core.config import (
+    DATABASE_URL,
+    OPENAI_API_KEY,
+    OPENAI_EMBEDDING_MODEL,
+    PGVECTOR_COLLECTION_NAME,
+    PG_CONNECTION_STRING,
+)
+
 import base64
 import hashlib
 import json
@@ -10,7 +24,6 @@ from dotenv import load_dotenv
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from langchain_openai import OpenAIEmbeddings
-from src.core.config import DATABASE_URL, OPENAI_API_KEY, OPENAI_EMBEDDING_MODEL, PGVECTOR_COLLECTION_NAME
 
 load_dotenv()
 
@@ -277,19 +290,36 @@ def get_raw_connection():
     return psycopg.connect(DATABASE_URL)
 
 
+# def get_sql_database() -> SQLDatabase:
+#     """
+#     Return LangChain SQLDatabase wrapper.
+
+#     Primarily used for:
+#     - reading live database schema
+#     - NL2SQL context generation
+#     """
+
+#     if not DATABASE_URL:
+#         raise ValueError("DATABASE_URL is not configured.")
+
+#     return SQLDatabase.from_uri(DATABASE_URL)
+
+
 def get_sql_database() -> SQLDatabase:
-    """
-    Return LangChain SQLDatabase wrapper.
 
-    Primarily used for:
-    - reading live database schema
-    - NL2SQL context generation
-    """
+    if not PG_CONNECTION_STRING:
+        raise ValueError("PG_CONNECTION_STRING is not configured.")
 
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL is not configured.")
-
-    return SQLDatabase.from_uri(DATABASE_URL)
+    return SQLDatabase.from_uri(
+        PG_CONNECTION_STRING,
+        include_tables=[
+            "customers",
+            "credit_cards",
+            "card_transactions",
+            "reward_transactions",
+            "billing_statements",
+        ],
+    )
 
 
 def get_embeddings() -> OpenAIEmbeddings:

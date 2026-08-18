@@ -60,10 +60,10 @@ Rules:
 
 Return ONLY JSON:
 
-{
+{{
     "revised_query": "...",
     "issues_addressed": []
-}
+}}
                 """,
             ),
             (
