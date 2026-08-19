@@ -14,7 +14,7 @@ class ConversationMessage(TypedDict):
 # Agent Decision
 # ─────────────────────────────────────────────
 
-QueryType = Literal["faq", "analytics", "combined"]
+QueryType = Literal["faq", "analytics", "combined", "conversation", "unrelated"]
 
 RetrievalStrategy = Literal[
     "fts",
