@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from src.states.agent_state import AgentState
-from src.agents.agents import agent_node
+from src.agents.agents import agent_node, contextualize_query_node
 
 from src.agents.evaluators import (
     retrieval_evaluator_node,
@@ -17,6 +17,10 @@ from src.services.sql_service import generate_sql
 from src.services.sql_executor import execute_sql
 from src.tools.sql_tools import validate_sql
 from src.services.answer_service import answer_builder_node
+from src.services.conversation_service import (
+    start_turn_node,
+    save_assistant_message_node,
+)
 
 # ============================================================
 # Wrapper Nodes
@@ -93,9 +97,17 @@ def sql_execution_node(state: AgentState):
 # ============================================================
 
 
-def route_after_agent(state: AgentState):
+def route_after_agent(
+    state: AgentState,
+):
 
     decision = state["agent_decision"]
+
+    if decision["query_type"] == "conversation":
+        return "conversation"
+
+    if decision["query_type"] == "unrelated":
+        return "unrelated"
 
     if decision["needs_faq"] and decision["needs_analytics"]:
         return "combined"
@@ -106,7 +118,7 @@ def route_after_agent(state: AgentState):
     if decision["needs_analytics"]:
         return "analytics"
 
-    return "faq"
+    return "unrelated"
 
 
 def route_combined(state: AgentState):
@@ -227,6 +239,26 @@ def sql_complete_node(state: AgentState):
     return {}
 
 
+def unrelated_response_node(
+    state: dict,
+):
+
+    return {
+        "answer_draft": {
+            "query": state["original_query"],
+            "answer": (
+                "I can help with credit card product information "
+                "and customer spend analysis. "
+                "This request is outside the scope of this assistant."
+            ),
+            "citations": "N/A",
+            "page_no": "N/A",
+            "document_name": "N/A",
+            "sql_query_executed": None,
+        }
+    }
+
+
 def route_after_retrieval_eval(
     state: AgentState,
 ):
@@ -313,6 +345,11 @@ def build_graph():
     )
 
     workflow.add_node(
+        "contextualize_query",
+        contextualize_query_node,
+    )
+
+    workflow.add_node(
         "final_eval",
         final_evaluator_node,
     )
@@ -345,11 +382,39 @@ def build_graph():
         sql_complete_node,
     )
 
+    workflow.add_node(
+        "start_turn",
+        start_turn_node,
+    )
+
+    workflow.add_node(
+        "save_assistant",
+        save_assistant_message_node,
+    )
+
+    workflow.add_node(
+        "unrelated_response",
+        unrelated_response_node,
+    )
+
     # ---------------------------
     # START
     # ---------------------------
 
-    workflow.add_edge(START, "agent")
+    workflow.add_edge(
+        START,
+        "start_turn",
+    )
+
+    workflow.add_edge(
+        "start_turn",
+        "contextualize_query",
+    )
+
+    workflow.add_edge(
+        "contextualize_query",
+        "agent",
+    )
 
     # ---------------------------
     # Agent Routing
@@ -362,6 +427,8 @@ def build_graph():
             "faq": "retrieval",
             "analytics": "nl2sql",
             "combined": "combined_start",
+            "conversation": "answer_builder",
+            "unrelated": "unrelated_response",
         },
     )
 
@@ -459,7 +526,7 @@ def build_graph():
         "final_eval",
         route_final_evaluation,
         {
-            "end": END,
+            "end": "save_assistant",
             "retry": "retry_check",
         },
     )
@@ -482,7 +549,17 @@ def build_graph():
     )
 
     workflow.add_edge(
+        "unrelated_response",
+        "save_assistant",
+    )
+
+    workflow.add_edge(
         "retry_failed",
+        "save_assistant",
+    )
+
+    workflow.add_edge(
+        "save_assistant",
         END,
     )
 
