@@ -26,24 +26,24 @@ ui.set_page_config(
 
 
 # ==========================================================
-# Custom Styling
+# Styling
 # ==========================================================
 
 ui.markdown(
     """
     <style>
 
-        .block-container {
-            padding-top: 3rem;
-        }
+    .block-container {
+        padding-top: 3rem;
+    }
 
-        .metadata-label {
-            color: #6b7280;
-            font-size: 0.82rem;
-            font-weight: 500;
-            margin-top: 10px;
-            margin-bottom: 3px;
-        }
+    .metadata-label {
+        color:#6b7280;
+        font-size:0.82rem;
+        font-weight:500;
+        margin-top:10px;
+        margin-bottom:3px;
+    }
 
     </style>
     """,
@@ -56,7 +56,6 @@ ui.markdown(
 # ==========================================================
 
 ui.subheader("NORTHSTAR BANK")
-
 ui.subheader("💳 Credit Card Spend Summarizer")
 
 ui.caption("AI-powered monthly analysis of your credit card transactions.")
@@ -109,7 +108,7 @@ def upload_document(document):
 
 
 # ==========================================================
-# Send User Query
+# Send Query
 # ==========================================================
 
 
@@ -127,6 +126,7 @@ def send_user_query(query):
             json=payload,
             timeout=120,
             stream=True,
+            headers={"Accept": "application/json, text/event-stream"},
         )
 
         return response
@@ -137,29 +137,12 @@ def send_user_query(query):
 
         return None
 
-
 # ==========================================================
 # Read SSE Stream
 # ==========================================================
 
 
 def read_sse_stream(response):
-    """
-    Reads the streamed response from the backend.
-
-    Expected format:
-
-        data: {"token":"{"}
-        data: {"token":"reason"}
-        data: {"token":"..."}
-        data: {"token":"}"}
-        data: {"token":"{"}
-        ...
-        data: [DONE]
-
-    The token stream is collected internally.
-    Nothing is displayed directly.
-    """
 
     complete_stream = ""
 
@@ -168,27 +151,18 @@ def read_sse_stream(response):
         for line in response.iter_lines(decode_unicode=True):
 
             if not line:
+
                 continue
 
-            # --------------------------------------------------
-            # Only process SSE data events
-            # --------------------------------------------------
-
             if not line.startswith("data:"):
+
                 continue
 
             data = line[len("data:") :].strip()
 
-            # --------------------------------------------------
-            # End of stream
-            # --------------------------------------------------
-
             if data == "[DONE]":
-                break
 
-            # --------------------------------------------------
-            # Parse SSE event
-            # --------------------------------------------------
+                break
 
             try:
 
@@ -202,12 +176,11 @@ def read_sse_stream(response):
 
             except json.JSONDecodeError:
 
-                # Ignore invalid SSE JSON
                 continue
 
     except Exception as error:
 
-        ui.error(f"Error reading response stream: {error}")
+        ui.error(f"Error reading stream: {error}")
 
     return complete_stream
 
@@ -218,17 +191,6 @@ def read_sse_stream(response):
 
 
 def extract_json_objects(text):
-    """
-    Extract multiple JSON objects from the reconstructed
-    stream.
-
-    Example:
-
-        {"reason":"...","route":"VECTOR_DB"}
-        {"document_name":"","page_no":"","response":"Hi"}
-
-    Returns a list of JSON objects.
-    """
 
     objects = []
 
@@ -238,13 +200,10 @@ def extract_json_objects(text):
 
     while position < len(text):
 
-        # --------------------------------------------------
-        # Find next JSON object
-        # --------------------------------------------------
-
         start = text.find("{", position)
 
         if start == -1:
+
             break
 
         try:
@@ -263,32 +222,11 @@ def extract_json_objects(text):
 
 
 # ==========================================================
-# Extract Final Agent Response
+# Extract Agent Response
 # ==========================================================
 
 
 def extract_agent_response(raw_response):
-    """
-    Extracts the final QueryResponse.
-
-    Intermediate response:
-
-        {
-            "reason": "...",
-            "route": "VECTOR_DB"
-        }
-
-    Final response:
-
-        {
-            "document_name": "",
-            "page_no": "",
-            "policy_citations": "",
-            "query": "hi",
-            "response": "Hi! How can I help you today?",
-            "sql_query_executed": null
-        }
-    """
 
     default_metadata = {
         "query": "",
@@ -300,20 +238,9 @@ def extract_agent_response(raw_response):
 
     if not raw_response:
 
-        return (
-            "No response generated.",
-            default_metadata,
-        )
-
-    # ------------------------------------------------------
-    # Extract all JSON objects
-    # ------------------------------------------------------
+        return ("No response generated.", default_metadata)
 
     objects = extract_json_objects(raw_response)
-
-    # ------------------------------------------------------
-    # Find final QueryResponse
-    # ------------------------------------------------------
 
     query_response = None
 
@@ -323,60 +250,23 @@ def extract_agent_response(raw_response):
 
             query_response = obj
 
-    # ------------------------------------------------------
-    # No final response found
-    # ------------------------------------------------------
-
     if query_response is None:
 
-        return (
-            "Unable to parse server response.",
-            default_metadata,
-        )
+        return ("Unable to parse server response.", default_metadata)
 
-    # ------------------------------------------------------
-    # Main response
-    # ------------------------------------------------------
-
-    answer = query_response.get(
-        "response",
-        "No response generated.",
-    )
-
-    # ------------------------------------------------------
-    # Metadata
-    #
-    # Query is retained internally but NOT displayed.
-    # ------------------------------------------------------
+    answer = query_response.get("response", "No response generated.")
 
     metadata = {
-        "query": query_response.get(
-            "query",
-            "",
-        ),
-        "document_name": query_response.get(
-            "document_name",
-            "",
-        ),
-        "page_no": query_response.get(
-            "page_no",
-            "",
-        ),
-        "policy_citations": query_response.get(
-            "policy_citations",
-            "",
-        ),
-        "sql_query_executed": query_response.get(
-            "sql_query_executed",
-            None,
-        ),
+        "query": query_response.get("query", ""),
+        "document_name": query_response.get("document_name", ""),
+        "page_no": query_response.get("page_no", ""),
+        "policy_citations": query_response.get("policy_citations", ""),
+        "sql_query_executed": query_response.get("sql_query_executed", None),
     }
 
     return answer, metadata
-
-
 # ==========================================================
-# Display Response Metadata
+# Display Metadata
 # ==========================================================
 
 
@@ -385,27 +275,15 @@ def display_metadata(metadata):
     if not metadata:
         return
 
-    # ------------------------------------------------------
-    # Get metadata
-    #
-    # Query is intentionally NOT displayed.
-    # ------------------------------------------------------
-
     document_name = metadata.get("document_name")
 
     page_no = metadata.get("page_no")
 
     policy_citations = metadata.get("policy_citations")
 
-    sql_query = metadata.get("sql_query_executed")
-
-    # ------------------------------------------------------
-    # Build only fields that contain values
-    # ------------------------------------------------------
-
     visible_fields = []
 
-    if document_name:
+    if document_name and document_name != "N/A":
 
         visible_fields.append(
             (
@@ -415,7 +293,7 @@ def display_metadata(metadata):
             )
         )
 
-    if page_no:
+    if page_no and page_no != "N/A":
 
         visible_fields.append(
             (
@@ -425,7 +303,7 @@ def display_metadata(metadata):
             )
         )
 
-    if policy_citations:
+    if policy_citations and policy_citations != "N/A":
 
         visible_fields.append(
             (
@@ -435,26 +313,11 @@ def display_metadata(metadata):
             )
         )
 
-    if sql_query:
-
-        visible_fields.append(
-            (
-                "SQL Query",
-                sql_query,
-                "sql",
-            )
-        )
-
-    # ------------------------------------------------------
-    # If nothing is available, don't show the dropdown
-    # ------------------------------------------------------
+    # No SQL Query added here
 
     if not visible_fields:
-        return
 
-    # ------------------------------------------------------
-    # Response Details Dropdown
-    # ------------------------------------------------------
+        return
 
     with ui.expander(
         "📋 Response Details",
@@ -463,56 +326,34 @@ def display_metadata(metadata):
 
         for label, value, field_type in visible_fields:
 
-            # ----------------------------------------------
-            # Clean label
-            # ----------------------------------------------
-
             ui.markdown(
-                f'<div class="metadata-label">' f"{label}" f"</div>",
+                f"""
+                <div class="metadata-label">
+                {label}
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
 
-            # ----------------------------------------------
-            # SQL
-            # ----------------------------------------------
-
-            if field_type == "sql":
-
-                ui.code(
-                    value,
-                    language="sql",
-                )
-
-            # ----------------------------------------------
-            # Normal text
-            # ----------------------------------------------
-
-            else:
-
-                ui.write(value)
+            ui.write(value)
 
 
 # ==========================================================
 # Sidebar
 # ==========================================================
 
+
 with ui.sidebar:
 
     ui.header("📁 Knowledge Base")
 
-    uploaded_file = ui.file_uploader(
-        "Upload Document",
-        type=["pdf"],
-    )
+    uploaded_file = ui.file_uploader("Upload Document", type=["pdf"])
 
     if uploaded_file:
 
         ui.write(f"Selected: {uploaded_file.name}")
 
-        if ui.button(
-            "Upload Document",
-            use_container_width=True,
-        ):
+        if ui.button("Upload Document", use_container_width=True):
 
             with ui.spinner("Uploading..."):
 
@@ -532,14 +373,7 @@ with ui.sidebar:
 
     ui.divider()
 
-    # ======================================================
-    # Clear Chat
-    # ======================================================
-
-    if ui.button(
-        "🗑 Clear Chat",
-        use_container_width=True,
-    ):
+    if ui.button("🗑 Clear Chat", use_container_width=True):
 
         ui.session_state.chat_history = []
 
@@ -552,15 +386,12 @@ with ui.sidebar:
 # Display Chat History
 # ==========================================================
 
+
 for message in ui.session_state.chat_history:
 
     with ui.chat_message(message["role"]):
 
         ui.markdown(message["message"])
-
-        # --------------------------------------------------
-        # Display metadata for assistant messages
-        # --------------------------------------------------
 
         if message["role"] == "assistant" and message.get("metadata"):
 
@@ -571,53 +402,30 @@ for message in ui.session_state.chat_history:
 # Chat Input
 # ==========================================================
 
+
 query = ui.chat_input("Ask about your credit card related query...")
 
 
 # ==========================================================
-# Chat Processing
+# Process Query
 # ==========================================================
+
 
 if query:
 
-    # ======================================================
-    # Save User Message
-    # ======================================================
-
-    ui.session_state.chat_history.append(
-        {
-            "role": "user",
-            "message": query,
-        }
-    )
-
-    # ======================================================
-    # Display User Message
-    # ======================================================
+    ui.session_state.chat_history.append({"role": "user", "message": query})
 
     with ui.chat_message("user"):
 
         ui.markdown(query)
 
-    # ======================================================
-    # Assistant Response
-    # ======================================================
-
     with ui.chat_message("assistant"):
 
         placeholder = ui.empty()
 
-        with ui.spinner("Generating insights..."):
-
-            # ------------------------------------------------
-            # Send query
-            # ------------------------------------------------
+        with ui.spinner("Running..."):
 
             response = send_user_query(query)
-
-            # ------------------------------------------------
-            # Connection failure
-            # ------------------------------------------------
 
             if response is None:
 
@@ -625,27 +433,42 @@ if query:
 
                 metadata = {}
 
-            # ------------------------------------------------
-            # Successful response
-            # ------------------------------------------------
-
             elif response.ok:
 
-                # --------------------------------------------
-                # Read stream silently
-                # --------------------------------------------
+                content_type = response.headers.get("content-type", "").lower()
 
-                raw_response = read_sse_stream(response)
+                # ======================================
+                # JSON Response
+                # ======================================
 
-                # --------------------------------------------
-                # Extract final response + metadata
-                # --------------------------------------------
+                if "application/json" in content_type:
 
-                answer, metadata = extract_agent_response(raw_response)
+                    data = response.json()
 
-            # ------------------------------------------------
-            # HTTP error
-            # ------------------------------------------------
+                    answer = data.get("response", "No response generated.")
+
+                    metadata = {
+                        "query": data.get("query", ""),
+                        "document_name": data.get("document_name", ""),
+                        "page_no": data.get("page_no", ""),
+                        "policy_citations": data.get("policy_citations", ""),
+                    }
+
+                # ======================================
+                # SSE Response
+                # ======================================
+
+                elif "text/event-stream" in content_type:
+
+                    raw_response = read_sse_stream(response)
+
+                    answer, metadata = extract_agent_response(raw_response)
+
+                else:
+
+                    answer = "Unsupported response format."
+
+                    metadata = {}
 
             else:
 
@@ -653,38 +476,10 @@ if query:
 
                 metadata = {}
 
-                try:
-
-                    error_text = response.text
-
-                    if error_text:
-
-                        ui.error(error_text)
-
-                except Exception:
-
-                    pass
-
-        # ==================================================
-        # Display Final Answer
-        # ==================================================
-
         placeholder.markdown(answer)
-
-        # ==================================================
-        # Display Metadata
-        # ==================================================
 
         display_metadata(metadata)
 
-        # ==================================================
-        # Save Assistant Message
-        # ==================================================
-
         ui.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "message": answer,
-                "metadata": metadata,
-            }
+            {"role": "assistant", "message": answer, "metadata": metadata}
         )
