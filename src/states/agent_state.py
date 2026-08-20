@@ -241,6 +241,7 @@ class AgentState(TypedDict, total=False):
 
     # Agent
     agent_decision: AgentDecision
+    images: list[dict[str, Any]]
 
     # Retrieval branch
     retrieval_result: RetrievalResult
@@ -263,6 +264,9 @@ class AgentState(TypedDict, total=False):
     retry: RetryState
     retry_feedback: RetryFeedback
     retry_query: RetryQuery
+
+    faq_completed: bool
+    sql_completed: bool
 
     # Error
     workflow_error: WorkflowError

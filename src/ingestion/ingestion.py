@@ -123,20 +123,20 @@ def run_ingestion(file_path: str) -> dict:
 # or from the project root:
 #   python src/ingestion/ingestion.py
 # ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    import sys
+# if __name__ == "__main__":
+    # import sys
 
     # Issue 12 fix: Accept the PDF path as a command-line argument so any
     # document can be ingested without editing the source code.
     # Usage: uv run python -m src.ingestion.ingestion path/to/file.pdf
     # Falls back to the default development PDF when no argument is provided.
-    if len(sys.argv) >= 2:
-        pdf_path = pathlib.Path(sys.argv[1])
-    else:
-        pdf_path = pathlib.Path("data/KB_Credit_Card_Spend_Summarizer.pdf")
+    # if len(sys.argv) >= 2:
+    #     pdf_path = pathlib.Path(sys.argv[1])
+    # else:
+    #     pdf_path = pathlib.Path("data/KB_Credit_Card_Spend_Summarizer.pdf")
 
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found at: {pdf_path.resolve()}")
+    # if not pdf_path.exists():
+    #     raise FileNotFoundError(f"PDF not found at: {pdf_path.resolve()}")
 
-    result = run_ingestion(str(pdf_path))
-    print(f"\nIngestion complete: {result}")
+    # result = run_ingestion(str(pdf_path))
+    # print(f"\nIngestion complete: {result}")
