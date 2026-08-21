@@ -138,8 +138,33 @@ Conversation includes:
 - asking about previous messages
 - casual questions
 
+===============================
+If the user asks something unrelated to credit cards,
+do not answer that question.
+
+Politely redirect:
+
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
 
 
+Examples:
+
+User:
+"What is the weather today?"
+
+Response:
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
+
+User:
+"Tell me about loans"
+
+Response:
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
+
+================================
 
 Rules:
 - Keep responses short and helpful.
@@ -153,10 +178,10 @@ Rules:
 - Only use information explicitly present in conversation history.
 - Do not output routing JSON.
 
-If the user previously provided personal information
+-If the user previously provided personal information
 like name, preferences, etc., use that information.
 
-Do not say you don't know something if it exists
+-Do not say you don't know something if it exists
 in conversation history.
 
 Keep responses short.
@@ -188,7 +213,7 @@ Current user message:
     history_text = "\n".join(
         [
             f"{m['role']}: {m['content']}"
-            for m in history[-6:]
+            for m in history#[-6:]
         ]
     )
 
@@ -307,8 +332,8 @@ def combined_evidence_gate_node(
         False,
     )
 
-    print("FAQ DONE:", faq_done)
-    print("SQL DONE:", sql_done)
+    # print("FAQ DONE:", faq_done)
+    # print("SQL DONE:", sql_done)
 
     return {}
 
@@ -399,13 +424,13 @@ def combined_start_node(state: AgentState):
 
 
 def faq_complete_node(state: AgentState):
-    print("FAQ COMPLETE NODE")
+    # print("FAQ COMPLETE NODE")
 
     return {"faq_completed": True}
 
 
 def sql_complete_node(state: AgentState):
-    print("SQL COMPLETE NODE")
+    # print("SQL COMPLETE NODE")
 
     return {"sql_completed": True}
 
@@ -658,7 +683,6 @@ def build_graph():
         "combined_evidence_gate",
     )
 
-
     workflow.add_edge(
         "combined_evidence_gate",
         "evidence_gate",
@@ -722,6 +746,8 @@ def build_graph():
 
     return_flow = workflow.compile(checkpointer=checkpointer)
 
+    # return_flow = workflow.compile()
+
     # generate and save the graph visualization
     graph_image = return_flow.get_graph().draw_mermaid_png()
     with open("test_dig.png", "wb") as f:
@@ -732,10 +758,11 @@ def build_graph():
 
 graph = build_graph()
 
+import uuid 
 
 def run_search_agent(query: str, session_id: str):
 
-    print("============1. INSIDE run_search_agent")
+    print("============ API -> AGENT ==============")
 
     initial_state = {
         "original_query": query,
@@ -756,20 +783,37 @@ def run_search_agent(query: str, session_id: str):
             "session_id": session_id,
             "interface": "streamlit",
         },
-        "configurable": {"thread_id": session_id},
+        "configurable": {
+            "thread_id": session_id,
+        },
     }
 
     final_state = graph.invoke(
         initial_state,
         config=config,
     )
+    print("========== GRAPH DEBUG ==========")
+    print("QUERY:", query)
+    print("FINAL ORIGINAL QUERY:", final_state.get("original_query"))
+    print("FINAL WORKING QUERY:", final_state.get("working_query"))
+    print("AGENT DECISION:", final_state.get("agent_decision"))
+    print("RETRIEVAL RESULT:", final_state.get("retrieval_result"))
+    print("RERANK RESULT:", final_state.get("rerank_result"))
+    print("SQL GENERATION:", final_state.get("sql_generation"))
+    print("SQL EXECUTION:", final_state.get("sql_execution"))
+    print("ANSWER DRAFT:", final_state.get("answer_draft"))
+    print("FINAL EVALUATION:", final_state.get("final_evaluation"))
+    print("RETRY:", final_state.get("retry"))
+    print("RETRY FEEDBACK:", final_state.get("retry_feedback"))
+    print("FINAL RESPONSE:", final_state.get("final_response"))
+    print("=================================")    
 
     return final_state
 
 
 def stream_search_agent(query: str, session_id: str) -> Generator:
 
-    print("============ INSIDE stream_search_agent")
+    print("============ API -> AGENT ==============")
 
     initial_state = {
         "original_query": query,

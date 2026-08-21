@@ -1,25 +1,13 @@
 from fastapi import FastAPI
+from src.api.v1.routes.upload_route import upload_router
+from src.api.v1.routes import graph_route, query_route
 
-from src.api.v1.routes.query import (
-    router as query_router,
-)
+app = FastAPI()
 
-app = FastAPI(
-    title="Credit Card Spend Summarizer",
-    version="1.0.0",
-)
+app.include_router(upload_router)
+app.include_router(query_route.router)
+app.include_router(graph_route.router)
 
-
-app.include_router(
-    query_router,
-    prefix="/api/v1",
-)
-
-
-@app.get("/")
-def health_check():
-
-    return {
-        "status": "running",
-        "service": "credit-card-spend-summarizer",
-    }
+# To run
+# uv run uvicorn main:app --reload
+# streamlit run src/ui/streamlit.py

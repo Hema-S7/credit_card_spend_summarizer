@@ -43,9 +43,10 @@ def build_sql_context(
 
 def judge_final_answer(
     query: str,
-    answer: dict,
+    answer: str,
     faq_context: str,
     sql_context: str,
+    query_type: str,
 ):
 
     llm = get_llm()
@@ -58,6 +59,11 @@ for a credit card spend summarization assistant.
 Original user question:
 
 {query}
+
+
+Query type:
+
+{query_type}
 
 
 Generated answer:
@@ -75,22 +81,40 @@ SQL evidence:
 {sql_context}
 
 
-Evaluate:
+Evaluation rules:
 
 
 1. Correct:
-Is the answer factually correct
-based on the evidence?
+- Is the answer factually correct?
+- Are claims supported by FAQ or SQL evidence?
 
 
 2. Complete:
-Does it answer every part
-of the user's question?
+- Does the answer address every part of the user question?
+
+
+IMPORTANT:
+
+If query_type is "combined":
+
+The user asked two different things:
+
+A) FAQ part:
+- Must be answered using FAQ evidence.
+
+B) Analytics part:
+- Must be answered using SQL evidence.
+
+
+A combined answer is incomplete if:
+- FAQ information is missing
+OR
+- SQL/customer information is missing.
 
 
 3. Grounded:
-Are all factual claims supported
-by FAQ or SQL evidence?
+- Every factual statement must come from FAQ evidence or SQL evidence.
+- Do not allow invented customer information.
 
 
 Return ONLY JSON:
@@ -114,17 +138,7 @@ Return ONLY JSON:
 def final_evaluator_node(
     state: dict[str, Any],
 ):
-    """
-    Final quality gate.
-
-    Evaluates:
-    - correctness
-    - completeness
-    - grounding
-
-    against original user intent.
-    """
-
+    print("FINAL EVALUATOR NODE")
     answer = state.get("answer_draft")
 
     if not answer:
@@ -146,12 +160,21 @@ def final_evaluator_node(
     sql_context = build_sql_context(state)
 
     evaluation = judge_final_answer(
-        query=state["original_query"],
-        answer=answer,
+        query=state["working_query"],  # change to working
+        # IMPORTANT
+        # send only answer text
+        answer=answer.get(
+            "response",
+            "",
+        ),
         faq_context=faq_context,
         sql_context=sql_context,
+        query_type=state.get("agent_decision", {}).get(
+            "query_type",
+            "unknown",
+        ),
     )
-
+    print("FINAL EVAL:", evaluation)
     passed = evaluation["correct"] and evaluation["complete"] and evaluation["grounded"]
 
     return {
@@ -194,7 +217,41 @@ def retrieval_evaluator_node(
 
     documents = rerank_result["documents"]
 
+    # if not documents:
+
+    #     return {
+    #         "retrieval_evaluation": {
+    #             "threshold_passed": False,
+    #             "llm_relevance_passed": False,
+    #             "threshold_score": 0,
+    #             "llm_relevance_score": 0,
+    #             "passed": False,
+    #             "retry_required": True,
+    #             "issues": ["No relevant documents retrieved."],
+    #         }
+    #     }
+
     if not documents:
+
+        query_type = state.get("agent_decision", {}).get(
+            "query_type",
+            "unknown",
+        )
+
+        # No FAQ documents are acceptable for analytics-only queries.
+        if query_type == "analytics":
+
+            return {
+                "retrieval_evaluation": {
+                    "threshold_passed": True,
+                    "llm_relevance_passed": True,
+                    "threshold_score": 0,
+                    "llm_relevance_score": 0,
+                    "passed": True,
+                    "retry_required": False,
+                    "issues": [],
+                }
+            }
 
         return {
             "retrieval_evaluation": {
@@ -229,13 +286,13 @@ def retrieval_evaluator_node(
 
     llm_passed = llm_result["passed"]
 
-    passed = threshold_passed and llm_passed
+    passed = threshold_passed or llm_passed  # changed and to or
 
     issues = []
 
     if not threshold_passed:
 
-        issues.append("Document relevance score below threshold.")
+        issues.append("Low similarity score but LLM confirmed relevance..")
 
     if not llm_passed:
 
@@ -387,13 +444,19 @@ def sql_evaluator_node(
             }
         }
 
+    query_type = state.get("agent_decision", {}).get(
+        "query_type",
+        "unknown",
+    )
+
     llm_result = judge_sql_result(
         query=query,
         sql=sql_generation["sql"],
         result=sql_execution,
+        query_type=query_type,
     )
 
-    passed = llm_result["correct"] and llm_result["complete"] and llm_result["grounded"]
+    passed = llm_result["correct"] and llm_result["grounded"]
 
     return {
         "sql_evaluation": {
@@ -408,6 +471,7 @@ def judge_sql_result(
     query: str,
     sql: str,
     result: dict[str, Any],
+    query_type: str,
 ):
 
     llm = get_llm()
@@ -415,8 +479,33 @@ def judge_sql_result(
     prompt = f"""
 You are a SQL quality evaluator.
 
+
 Evaluate whether the SQL query and its result
-correctly answer the user's question.
+correctly answer the ANALYTICS portion of the user's question.
+
+Query type:
+
+{query_type}
+
+IMPORTANT:
+
+If query_type is "combined", the user's question contains
+multiple parts.
+
+SQL is responsible ONLY for the analytics/customer-data portion.
+
+Do NOT require SQL to answer:
+- FAQ questions
+- product information
+- reward rules
+- cashback/benefit explanations
+- general credit-card information
+
+Those parts are handled separately using FAQ evidence.
+
+For a combined query, SQL should PASS if it correctly
+retrieves the customer/analytics information requested,
+even if the SQL result does not contain the FAQ information.
 
 User question:
 

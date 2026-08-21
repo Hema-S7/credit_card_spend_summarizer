@@ -139,8 +139,11 @@ SQL:
 - Otherwise set it to null.
 
 Conversation history:
-- Use only for resolving references like:
-  "it", "that card", "previous one", "what about fees".
+- Use ONLY when query_type is conversation.
+- For FAQ, analytics, and combined queries ignore conversation history.
+- Never reuse previous answers.
+- Always answer only the current question.
+
 - use conversation history as a source for replying for conversational questions.
 - Facts do not need to come only from evidence.
 

@@ -12,17 +12,26 @@ from src.core.llm import get_llm
 def answer_builder_node(
     state: dict[str, Any],
 ):
+    print("Building answer from evidence...")
     """
-    Generate final structured response.
+        Generate final structured response.
 
-    Uses only:
-    - validated FAQ documents
-    - validated SQL results
+        Uses only:
+        - validated FAQ documents
+        - validated SQL results
+
+ 
     """
 
     llm = get_llm()
 
     structured_llm = llm.with_structured_output(AIResponse)
+
+    history = state.get("conversation_history", [])
+
+    history_text = "\n\n".join(
+        [f"{msg['role'].capitalize()}: {msg['content']}" for msg in history]
+    )
 
     context_parts = []
 
@@ -128,11 +137,25 @@ SQL:
 - Include the SQL query only when analytics
   data was used.
 - Otherwise set it to null.
+
+Conversation history:
+- Use ONLY when query_type is conversation.
+- For FAQ, analytics, and combined queries ignore conversation history.
+- Never reuse previous answers.
+- Always answer only the current question.
+
+- use conversation history as a source for replying for conversational questions.
+- Facts do not need to come only from evidence.
+
 """,
             ),
             (
                 "human",
                 """
+Conversation history:
+
+{history}
+
 Question:
 
 {query}
@@ -150,7 +173,8 @@ Evidence:
 
     response = chain.invoke(
         {
-            "query": state["original_query"],
+            "query": state["working_query"],  # chnage to workingquery
+            "history": history_text,
             "context": context,
         }
     )

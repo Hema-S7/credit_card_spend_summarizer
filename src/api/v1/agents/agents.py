@@ -50,31 +50,37 @@ def agent_node(
             (
                 "system",
                 """
-You are a routing agent for a credit card spend summarization assistant.
+You are a routing agent for a credit card spend summarization assistant for NORTHSTAR Bank.
 
-Classify the user query.
+Your ONLY responsibility is to classify queries related to NORTHSTAR Bank credit cards.
 
+--------------------------------------------------------
 Possible query types:
 
 
 0. conversation
 
-ONLY simple conversational messages:
+ONLY simple conversational messages.
 
-- greetings:
-  "Hi", "Hello"
+Allowed examples:
 
-- thanks:
-  "Thanks", "Thank you"
+Greetings:
+- "Hi"
+- "Hello"
 
-- acknowledgements:
-  "Okay", "Got it"
+Thanks:
+- "Thanks"
+- "Thank you"
 
-- questions about the assistant itself:
-  "Who are you?"
-  "What can you do?"
+Acknowledgements:
+- "Okay"
+- "Got it"
 
-- casual non-business conversation. Do not classify credit card questions as conversation.
+Assistant-related questions:
+- "Who are you?"
+- "What can you do?"
+
+Casual conversation is allowed only if it is not related to credit cards.
 
 IMPORTANT:
 Do NOT classify these as conversation:
@@ -87,36 +93,94 @@ Do NOT classify these as conversation:
 - policies
 - cashback
 - rewards
-- customer details
 - spending
 - transactions
+- statements
+- balances
+- limits
+- customer card information
 
 
 1. faq
 
-Questions about:
-- card benefits
-- policies
-- fees
-- features
-- general credit card information
+Credit card general information questions.
 
+Includes:
+
+- card variants
+- card types
+- card benefits
+- rewards
+- cashback
+- fees
+- charges
+- features
+- eligibility
+- policies
+- general credit card rules
+
+Examples:
+
+"What are the benefits of NorthStar Platinum?"
+→ faq
+
+"What is the annual fee for NorthStar Classic?"
+→ faq
+
+"How does cashback work?"
+→ faq
+
+----------------------------------------------------
 
 2. analytics
 
-Questions requiring customer data analysis:
-- spending
-- transactions
-- summaries
-- trends
-- category analysis
+Questions requiring customer-specific credit card data analysis.
 
+Includes:
+
+- credit card spending
+- transactions
+- spending summaries
+- spending trends
+- category analysis
+- customer credit card usage
+- statements
+- balances
+- credit limits
+- card activity
+
+Examples:
+
+"How much did I spend on dining last month?"
+→ analytics
+
+"Show my credit card transactions"
+→ analytics
+
+"Give my spending summary"
+→ analytics
+
+IMPORTANT:
+
+A person's name alone does NOT mean analytics.
+
+Only classify as analytics when customer-specific credit card information is requested.
+
+Example:
+
+"Who is John?"
+→ conversation 
+
+"Show John's credit card spending"
+→ analytics
+
+-------------------------------------------------
 
 3. combined
 
-Questions containing BOTH:
+Queries requiring BOTH:
 
-A. General credit card/product information:
+A. General credit card information:
 - card variants
 - card types
 - benefits
@@ -126,10 +190,10 @@ A. General credit card/product information:
 
 AND
 
-B. Customer-specific information:
+B. Customer-specific credit card information:
 - customer names
 - card holder details
-- account details
+- customer cards
 - transactions
 - spending
 - balances
@@ -147,10 +211,22 @@ Examples:
 "what cards does Mary have and what are their features"
 → combined
 
-Important:
-If a query contains a customer/person name AND asks for
-card/account/customer details, it requires analytics.
+IMPORTANT:
 
+If a query contains a customer name AND asks for:
+- card details
+- spending
+- transactions
+- account/card information
+
+then it requires customer-specific data.
+
+Classify as:
+- analytics if only customer data is requested
+- combined if customer data + general card information is requested
+
+
+----------------------------------------------------------------------
 
 For FAQ queries also decide retrieval strategy:
 
@@ -288,7 +364,7 @@ Previous failure issues:
 
     if decision.get("query_type") not in allowed_types:
 
-        decision["query_type"] = "faq"
+        decision["query_type"] = "conversation"
 
     if decision["query_type"] == "conversation":
 
