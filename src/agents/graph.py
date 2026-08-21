@@ -1,30 +1,70 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-from src.states.agent_state import AgentState
-from src.agents.agents import agent_node, contextualize_query_node
+from src.api.v1.states.agent_state import AgentState
+from src.api.v1.agents.agents import agent_node
 
-from src.agents.evaluators import (
+from src.api.v1.agents.evaluators import (
     retrieval_evaluator_node,
     sql_evaluator_node,
     final_evaluator_node,
 )
 
-from src.agents.retry import retry_router, retry_rephrase_node, retry_exhausted_response
-
-from src.services.retrieval_service import retrieve_documents
-from src.services.rerank_service import rerank_documents
-from src.services.sql_service import generate_sql
-from src.services.sql_executor import execute_sql
-from src.tools.sql_tools import validate_sql
-from src.services.answer_service import answer_builder_node
-from src.services.conversation_service import (
-    start_turn_node,
-    save_assistant_message_node,
+from src.api.v1.agents.retry import (
+    retry_router,
+    retry_rephrase_node,
+    retry_exhausted_response,
 )
+
+from src.api.v1.services.retrieval_service import retrieve_documents
+from src.api.v1.services.rerank_service import rerank_documents
+from src.api.v1.services.sql_service import generate_sql
+from src.api.v1.services.sql_executor import execute_sql
+from src.api.v1.tools.sql_tools import validate_sql
+from src.api.v1.services.answer_service import answer_builder_node
+from typing import Generator
+from typing import Any
+
+from langchain_core.prompts import ChatPromptTemplate
+from src.core.llm import get_llm
 
 # ============================================================
 # Wrapper Nodes
 # ============================================================
+
+
+def add_user_message_node(
+    state: AgentState,
+):
+
+    history = state.get(
+        "conversation_history",
+        [],
+    )
+
+    history.append(
+        {
+            "role": "user",
+            "content": state["original_query"],
+        }
+    )
+
+    return {"conversation_history": history}
+
+
+def add_ai_message_node(state: AgentState):
+
+    answer = state.get("answer_draft", {}).get("response", "")
+
+    history = state.get("conversation_history", [])
+
+    history.append(
+        {
+            "role": "assistant",
+            "content": answer,
+        }
+    )
+
+    return {"conversation_history": history}
 
 
 def retrieval_node(state: AgentState):
@@ -67,6 +107,137 @@ def sql_validation_node(state: AgentState):
     return {"sql_validation": result}
 
 
+def conversation_node(state: AgentState) -> dict[str, Any]:
+    """
+    Handles normal conversation such as greetings,
+    acknowledgements, and general assistant interaction.
+
+    Does not use retrieval or SQL.
+    """
+
+    llm = get_llm()
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
+You are a friendly AI assistant for a credit card spend
+summarization application.
+
+Handle simple conversational messages.
+
+Conversation includes:
+- greetings
+- thanks
+- acknowledgements
+- asking who you are
+- asking what you can do
+- asking the user's previous provided information
+- asking user's name
+- asking about previous messages
+- casual questions
+
+===============================
+If the user asks something unrelated to credit cards,
+do not answer that question.
+
+Politely redirect:
+
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
+
+
+Examples:
+
+User:
+"What is the weather today?"
+
+Response:
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
+
+User:
+"Tell me about loans"
+
+Response:
+"Please ask a question related to NORTHSTAR Bank credit cards,
+such as card benefits, fees, rewards, transactions, or spending."
+
+================================
+
+Rules:
+- Keep responses short and helpful.
+- Do not provide credit card policy details unless asked.
+- Do not invent banking information.
+- Do not call retrieval or analytics tools.
+
+- Use conversation history when replying.
+- If the user previously provided their name, you may use it.
+- Do not invent names or personal details.
+- Only use information explicitly present in conversation history.
+- Do not output routing JSON.
+
+-If the user previously provided personal information
+like name, preferences, etc., use that information.
+
+-Do not say you don't know something if it exists
+in conversation history.
+
+Keep responses short.
+""",
+            ),
+            (
+                "human",
+                """
+Conversation history:
+
+{history}
+
+
+Current user message:
+
+{query}
+
+""",
+            ),
+        ]
+    )
+
+    chain = prompt | llm
+    history = state.get(
+        "conversation_history",
+        []
+    )
+
+    history_text = "\n".join(
+        [
+            f"{m['role']}: {m['content']}"
+            for m in history#[-6:]
+        ]
+    )
+
+    response = chain.invoke(
+        {
+            "query": state["working_query"],
+            "history": history_text,
+        }
+    )
+
+    return {
+        "answer_draft": {
+            "query": state["working_query"],
+            "history": history_text,
+            "response": response.content,
+            "policy_citations": "N/A",
+            "document_name": "N/A",
+            "page_no": "N/A",
+            "sql_query_executed": None,
+            "citations": "N/A",
+        }
+    }
+
+
 def sql_execution_node(state: AgentState):
 
     validation = state["sql_validation"]
@@ -106,9 +277,6 @@ def route_after_agent(
     if decision["query_type"] == "conversation":
         return "conversation"
 
-    if decision["query_type"] == "unrelated":
-        return "unrelated"
-
     if decision["needs_faq"] and decision["needs_analytics"]:
         return "combined"
 
@@ -143,6 +311,32 @@ def evidence_gate_node(
     A LangGraph node must return a dict.
     No state update is required here.
     """
+    print("EVIDENCE GATE")
+
+    print("retrieval evaluation:", state.get("retrieval_evaluation"))
+
+    print("sql evaluation:", state.get("sql_evaluation"))
+    return {}
+
+
+def combined_evidence_gate_node(
+    state: AgentState,
+):
+    print("COMBINED EVIDENCE GATE")
+
+    faq_done = state.get(
+        "faq_completed",
+        False,
+    )
+
+    sql_done = state.get(
+        "sql_completed",
+        False,
+    )
+
+    # print("FAQ DONE:", faq_done)
+    # print("SQL DONE:", sql_done)
+
     return {}
 
 
@@ -232,11 +426,15 @@ def combined_start_node(state: AgentState):
 
 
 def faq_complete_node(state: AgentState):
-    return {}
+    # print("FAQ COMPLETE NODE")
+
+    return {"faq_completed": True}
 
 
 def sql_complete_node(state: AgentState):
-    return {}
+    # print("SQL COMPLETE NODE")
+
+    return {"sql_completed": True}
 
 
 def unrelated_response_node(
@@ -293,10 +491,23 @@ def build_graph():
     # ---------------------------
     # Nodes
     # ---------------------------
+    workflow.add_node(
+    "add_user_message",
+    add_user_message_node,
+    )
+
+    workflow.add_node(
+        "add_ai_message",
+        add_ai_message_node,
+    )
 
     workflow.add_node(
         "agent",
         agent_node,
+    )
+    workflow.add_node(
+        "conversation",
+        conversation_node,
     )
 
     workflow.add_node(
@@ -381,39 +592,22 @@ def build_graph():
         "sql_complete",
         sql_complete_node,
     )
-
     workflow.add_node(
-        "start_turn",
-        start_turn_node,
+        "combined_evidence_gate",
+        combined_evidence_gate_node,
     )
-
-    workflow.add_node(
-        "save_assistant",
-        save_assistant_message_node,
-    )
-
-    workflow.add_node(
-        "unrelated_response",
-        unrelated_response_node,
-    )
-
     # ---------------------------
     # START
     # ---------------------------
 
     workflow.add_edge(
-        START,
-        "start_turn",
+    START,
+    "add_user_message"
     )
 
     workflow.add_edge(
-        "start_turn",
-        "contextualize_query",
-    )
-
-    workflow.add_edge(
-        "contextualize_query",
-        "agent",
+        "add_user_message",
+        "agent"
     )
 
     # ---------------------------
@@ -424,6 +618,7 @@ def build_graph():
         "agent",
         route_after_agent,
         {
+            "conversation": "conversation",
             "faq": "retrieval",
             "analytics": "nl2sql",
             "combined": "combined_start",
@@ -435,6 +630,10 @@ def build_graph():
     # ---------------------------
     # FAQ branch
     # ---------------------------
+    workflow.add_edge(
+        "conversation",
+        "final_eval",
+    )
 
     workflow.add_edge(
         "retrieval",
@@ -496,11 +695,25 @@ def build_graph():
         "nl2sql",
     )
 
+    # workflow.add_edge(
+    #     [
+    #         "faq_complete",
+    #         "sql_complete",
+    #     ],
+    #     "evidence_gate",
+    # )
     workflow.add_edge(
-        [
-            "faq_complete",
-            "sql_complete",
-        ],
+        "faq_complete",
+        "combined_evidence_gate",
+    )
+
+    workflow.add_edge(
+        "sql_complete",
+        "combined_evidence_gate",
+    )
+
+    workflow.add_edge(
+        "combined_evidence_gate",
         "evidence_gate",
     )
 
@@ -526,9 +739,14 @@ def build_graph():
         "final_eval",
         route_final_evaluation,
         {
-            "end": "save_assistant",
+            "end": "add_ai_message",
             "retry": "retry_check",
         },
+    )
+
+    workflow.add_edge(
+        "add_ai_message",
+        END,
     )
 
     # ---------------------------
@@ -567,9 +785,89 @@ def build_graph():
 
     return_flow = workflow.compile(checkpointer=checkpointer)
 
+    # return_flow = workflow.compile()
+
     # generate and save the graph visualization
     graph_image = return_flow.get_graph().draw_mermaid_png()
     with open("test_dig.png", "wb") as f:
         f.write(graph_image)
 
     return return_flow
+
+
+graph = build_graph()
+
+import uuid 
+
+def run_search_agent(query: str, session_id: str):
+
+    print("============ API -> AGENT ==============")
+
+    initial_state = {
+        "original_query": query,
+        "working_query": query,
+        "retry": {
+            "count": 0,
+            "max_retries": 3,
+        },
+    }
+
+    config = {
+        "run_name": "credit_card_spend",
+        "tags": [
+            "chatbot",
+            "user-query",
+        ],
+        "metadata": {
+            "session_id": session_id,
+            "interface": "streamlit",
+        },
+        "configurable": {
+            "thread_id": session_id,
+        },
+    }
+
+    final_state = graph.invoke(
+        initial_state,
+        config=config,
+    )
+    print("========== GRAPH DEBUG ==========")
+    print("QUERY:", query)
+    print("FINAL ORIGINAL QUERY:", final_state.get("original_query"))
+    print("FINAL WORKING QUERY:", final_state.get("working_query"))
+    print("AGENT DECISION:", final_state.get("agent_decision"))
+    print("RETRIEVAL RESULT:", final_state.get("retrieval_result"))
+    print("RERANK RESULT:", final_state.get("rerank_result"))
+    print("SQL GENERATION:", final_state.get("sql_generation"))
+    print("SQL EXECUTION:", final_state.get("sql_execution"))
+    print("ANSWER DRAFT:", final_state.get("answer_draft"))
+    print("FINAL EVALUATION:", final_state.get("final_evaluation"))
+    print("RETRY:", final_state.get("retry"))
+    print("RETRY FEEDBACK:", final_state.get("retry_feedback"))
+    print("FINAL RESPONSE:", final_state.get("final_response"))
+    print("=================================")    
+
+    return final_state
+
+
+def stream_search_agent(query: str, session_id: str) -> Generator:
+
+    print("============ API -> AGENT ==============")
+
+    initial_state = {
+        "original_query": query,
+        "working_query": query,
+        "retry": {
+            "count": 0,
+            "max_retries": 3,
+        },
+    }
+
+    config = {"configurable": {"thread_id": session_id}}
+
+    for event in graph.stream(
+        initial_state,
+        config=config,
+        stream_mode="updates",
+    ):
+        yield event

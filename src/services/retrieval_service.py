@@ -98,7 +98,7 @@ from src.core.config import (
     RETRIEVAL_TOP_K,
 )
 
-from src.tools.retrieval_tools import (
+from src.api.v1.tools.retrieval_tools import (
     search_fts,
     search_vector,
     search_hybrid,

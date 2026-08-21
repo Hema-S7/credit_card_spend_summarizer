@@ -217,7 +217,41 @@ def retrieval_evaluator_node(
 
     documents = rerank_result["documents"]
 
+    # if not documents:
+
+    #     return {
+    #         "retrieval_evaluation": {
+    #             "threshold_passed": False,
+    #             "llm_relevance_passed": False,
+    #             "threshold_score": 0,
+    #             "llm_relevance_score": 0,
+    #             "passed": False,
+    #             "retry_required": True,
+    #             "issues": ["No relevant documents retrieved."],
+    #         }
+    #     }
+
     if not documents:
+
+        query_type = state.get("agent_decision", {}).get(
+            "query_type",
+            "unknown",
+        )
+
+        # No FAQ documents are acceptable for analytics-only queries.
+        if query_type == "analytics":
+
+            return {
+                "retrieval_evaluation": {
+                    "threshold_passed": True,
+                    "llm_relevance_passed": True,
+                    "threshold_score": 0,
+                    "llm_relevance_score": 0,
+                    "passed": True,
+                    "retry_required": False,
+                    "issues": [],
+                }
+            }
 
         return {
             "retrieval_evaluation": {
@@ -410,13 +444,19 @@ def sql_evaluator_node(
             }
         }
 
+    query_type = state.get("agent_decision", {}).get(
+        "query_type",
+        "unknown",
+    )
+
     llm_result = judge_sql_result(
         query=query,
         sql=sql_generation["sql"],
         result=sql_execution,
+        query_type=query_type,
     )
 
-    passed = llm_result["correct"] and llm_result["complete"] and llm_result["grounded"]
+    passed = llm_result["correct"] and llm_result["grounded"]
 
     return {
         "sql_evaluation": {
@@ -431,6 +471,7 @@ def judge_sql_result(
     query: str,
     sql: str,
     result: dict[str, Any],
+    query_type: str,
 ):
 
     llm = get_llm()
@@ -438,8 +479,33 @@ def judge_sql_result(
     prompt = f"""
 You are a SQL quality evaluator.
 
+
 Evaluate whether the SQL query and its result
-correctly answer the user's question.
+correctly answer the ANALYTICS portion of the user's question.
+
+Query type:
+
+{query_type}
+
+IMPORTANT:
+
+If query_type is "combined", the user's question contains
+multiple parts.
+
+SQL is responsible ONLY for the analytics/customer-data portion.
+
+Do NOT require SQL to answer:
+- FAQ questions
+- product information
+- reward rules
+- cashback/benefit explanations
+- general credit-card information
+
+Those parts are handled separately using FAQ evidence.
+
+For a combined query, SQL should PASS if it correctly
+retrieves the customer/analytics information requested,
+even if the SQL result does not contain the FAQ information.
 
 User question:
 

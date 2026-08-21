@@ -100,9 +100,7 @@ def upload_document(document):
 
         return response
 
-    except RequestException as error:
-
-        ui.error(f"Upload failed: {error}")
+    except RequestException:
 
         return None
 
@@ -131,9 +129,7 @@ def send_user_query(query):
 
         return response
 
-    except RequestException as error:
-
-        ui.error(f"Query failed: {error}")
+    except RequestException:
 
         return None
 
@@ -252,7 +248,10 @@ def extract_agent_response(raw_response):
 
     if query_response is None:
 
-        return ("Unable to parse server response.", default_metadata)
+        return (
+            "I couldn't generate a response right now. Please try again",
+            default_metadata,
+        )
 
     answer = query_response.get("response", "No response generated.")
 
@@ -472,7 +471,24 @@ if query:
 
             else:
 
-                answer = f"Request failed: " f"{response.status_code}"
+                try:
+                        error_data = response.json()
+
+                        detail = error_data.get("detail", {})
+
+                        if isinstance(detail, dict):
+                            answer = detail.get(
+                                "message",
+                                "Request blocked by guardrail."
+                            )
+                        else:
+                            answer = str(detail)
+
+                except Exception:
+                        answer = response.text or (
+                            "I couldn't process your request right now. "
+                            "Please try again."
+                        )
 
                 metadata = {}
 

@@ -202,7 +202,7 @@ def retry_rephrase_node(
                 "reason": ("Combined query preserved. " "All intents must remain."),
             },
             "retry": {
-                "count": retry_count + 1,
+                "count": min(retry_count + 1, max_retries),
                 "max_retries": max_retries,
             },
         }
@@ -223,6 +223,27 @@ You are a query rewriting agent.
 Your task:
 Rewrite the user query to improve answer quality
 after a previous attempt failed.
+
+IMPORTANT:
+
+If the original query is a conversation query, NEVER rewrite it
+into an FAQ or analytics query.
+
+Conversation queries must remain conversation queries.
+
+Examples:
+
+"who am i"
+→ "who am i"
+
+"what is my name"
+→ "what is my name"
+
+"who are you"
+→ "who are you"
+
+Do not transform these into requests for SQL, database evidence,
+customer records, or FAQ evidence.
 
 Rules:
 
@@ -270,7 +291,7 @@ Original user query:
             "reason": "Retry query generated",
         },
         "retry": {
-            "count": retry_count + 1,
+            "count": min(retry_count + 1, max_retries),
             "max_retries": max_retries,
         },
     }
