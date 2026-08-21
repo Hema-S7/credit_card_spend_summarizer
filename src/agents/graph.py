@@ -268,7 +268,9 @@ def sql_execution_node(state: AgentState):
 # ============================================================
 
 
-def route_after_agent(state: AgentState):
+def route_after_agent(
+    state: AgentState,
+):
 
     decision = state["agent_decision"]
 
@@ -284,7 +286,7 @@ def route_after_agent(state: AgentState):
     if decision["needs_analytics"]:
         return "analytics"
 
-    return "faq"
+    return "unrelated"
 
 
 def route_combined(state: AgentState):
@@ -435,6 +437,26 @@ def sql_complete_node(state: AgentState):
     return {"sql_completed": True}
 
 
+def unrelated_response_node(
+    state: dict,
+):
+
+    return {
+        "answer_draft": {
+            "query": state["original_query"],
+            "answer": (
+                "I can help with credit card product information "
+                "and customer spend analysis. "
+                "This request is outside the scope of this assistant."
+            ),
+            "citations": "N/A",
+            "page_no": "N/A",
+            "document_name": "N/A",
+            "sql_query_executed": None,
+        }
+    }
+
+
 def route_after_retrieval_eval(
     state: AgentState,
 ):
@@ -534,6 +556,11 @@ def build_graph():
     )
 
     workflow.add_node(
+        "contextualize_query",
+        contextualize_query_node,
+    )
+
+    workflow.add_node(
         "final_eval",
         final_evaluator_node,
     )
@@ -595,6 +622,8 @@ def build_graph():
             "faq": "retrieval",
             "analytics": "nl2sql",
             "combined": "combined_start",
+            "conversation": "answer_builder",
+            "unrelated": "unrelated_response",
         },
     )
 
@@ -738,7 +767,17 @@ def build_graph():
     )
 
     workflow.add_edge(
+        "unrelated_response",
+        "save_assistant",
+    )
+
+    workflow.add_edge(
         "retry_failed",
+        "save_assistant",
+    )
+
+    workflow.add_edge(
+        "save_assistant",
         END,
     )
 

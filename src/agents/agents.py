@@ -5,6 +5,91 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.core.llm import get_llm
 
 
+def contextualize_query_node(
+    state: dict[str, Any],
+):
+    """
+    Resolve references in the current query
+    using conversation history.
+
+    Keeps original_query unchanged and only
+    updates working_query.
+    """
+
+    history = state.get("conversation_history") or []
+
+    query = state["original_query"]
+
+    # No previous history -> nothing to resolve
+    if len(history) <= 1:
+        return {"working_query": query}
+
+    # Current user message was already added
+    # by start_turn_node, so exclude it.
+    previous_history = history[:-1]
+
+    history_text = "\n".join(
+        [f'{message["role"]}: {message["content"]}' for message in previous_history]
+    )
+
+    llm = get_llm()
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
+You rewrite follow-up user questions into
+self-contained questions using conversation history.
+
+Rules:
+
+- Preserve the user's intent.
+- Resolve references such as:
+  "it",
+  "that card",
+  "those cards",
+  "the second one",
+  "mentioned earlier",
+  "previously mentioned".
+
+- Use only information present in conversation history.
+- Do not invent names, card IDs, dates, or facts.
+- Do not answer the question.
+- If the query is already self-contained,
+  return it unchanged.
+
+Return only the rewritten query.
+                """,
+            ),
+            (
+                "human",
+                """
+Conversation history:
+
+{history}
+
+
+Current query:
+
+{query}
+                """,
+            ),
+        ]
+    )
+
+    response = (prompt | llm).invoke(
+        {
+            "history": history_text,
+            "query": query,
+        }
+    )
+
+    rewritten_query = response.content.strip()
+
+    return {"working_query": rewritten_query}
+
+
 def agent_node(
     state: dict[str, Any],
 ):
@@ -28,10 +113,7 @@ def agent_node(
         0,
     )
 
-    retry_feedback = state.get(
-        "retry_feedback",
-        {},
-    )
+    retry_feedback = state.get("retry_feedback") or {}
 
     failure_stage = retry_feedback.get(
         "failure_stage",
@@ -43,7 +125,7 @@ def agent_node(
         [],
     )
 
-    previous_strategy = state.get("retrieval_result", {}).get("strategy")
+    previous_strategy = (state.get("retrieval_result") or {}).get("strategy")
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -247,6 +329,7 @@ Retrieval strategy rules:
    - the answer may require information from different document chunks;
    - both exact product names and semantic concepts are present.
 
+
 Examples:
 
 "What is the annual fee for NorthStar Classic?"
@@ -258,6 +341,44 @@ Examples:
 "What is the annual fee for NorthStar Classic and
 what cashback applies to groceries and gas?"
 → Hybrid
+
+4. conversation
+
+Questions that can be answered from the existing
+conversation history and do not require FAQ retrieval
+or customer analytics.
+
+Examples:
+
+"What is my name?"
+"What did I ask earlier?"
+"What card did we just discuss?"
+"Can you repeat your previous answer?"
+
+For conversation queries:
+
+- needs_faq = false
+- needs_analytics = false
+- retrieval_strategy = null
+
+5. unrelated
+
+Requests outside the scope of credit card product knowledge,
+customer spend analysis, or conversation follow-up.
+
+Examples:
+
+- "Can you get me a job?"
+- "What's the weather today?"
+- "Write Python code for me."
+- "Book me a hotel."
+- "Tell me a recipe."
+
+For unrelated queries:
+
+- needs_faq = false
+- needs_analytics = false
+- retrieval_strategy = null
 
 Retry rules:
 

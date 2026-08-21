@@ -4,6 +4,27 @@ from src.core.config import RETRIEVAL_THRESHOLD
 from src.core.llm import get_llm
 
 
+def build_conversation_context(
+    state: dict[str, Any],
+):
+
+    history = state.get("conversation_history") or []
+
+    if (
+        history
+        and history[-1]["role"] == "user"
+        and history[-1]["content"] == state["original_query"]
+    ):
+        history = history[:-1]
+
+    if not history:
+        return "No conversation evidence"
+
+    return "\n".join(
+        [f'{message["role"]}: {message["content"]}' for message in history]
+    )
+
+
 def build_faq_context(
     state: dict[str, Any],
 ):
@@ -158,6 +179,8 @@ def final_evaluator_node(
     faq_context = build_faq_context(state)
 
     sql_context = build_sql_context(state)
+
+    conversation_context = build_conversation_context(state)
 
     evaluation = judge_final_answer(
         query=state["working_query"],  # change to working
